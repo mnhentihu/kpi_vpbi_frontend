@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* custom utilities */
+.card {
+  @apply bg-white rounded-2xl shadow-sm border border-gray-200;
+}
+.card-header {
+  @apply px-5 pt-5 pb-0 font-semibold;
+}
+.card-body {
+  @apply p-5;
+}
