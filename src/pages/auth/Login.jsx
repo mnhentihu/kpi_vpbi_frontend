@@ -1,16 +1,16 @@
-// src/pages/auth/Login.jsx
 import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import TextField from "../../components/ui/TextField";
 import Button from "../../components/ui/Button";
+import { FcGoogle } from "react-icons/fc";
 
 export default function Login() {
   const location = useLocation();
   const registered = location.state?.registered;
   const prefillEmail = location.state?.email ?? "";
   const nav = useNavigate();
-  const { login } = useAuth(); // ⬅️ hanya login, tanpa Google
+  const { login, loginWithGoogle } = useAuth();
 
   const [form, setForm] = useState({ email: prefillEmail, password: "" });
   const [err, setErr] = useState({});
@@ -31,6 +31,15 @@ export default function Login() {
       nav("/");
     } catch (ex) {
       setErr({ global: ex.message || "Gagal login" });
+    }
+  }
+
+  async function loginGoogle() {
+    try {
+      await loginWithGoogle();
+      nav("/");
+    } catch {
+      setErr({ global: "Gagal login Google. Coba lagi." });
     }
   }
 
@@ -55,7 +64,7 @@ export default function Login() {
               label="Email"
               name="email"
               value={form.email}
-              onChange={(e) => setForm({ ...form, email: e.target.value })}
+              onChange={(e)=>setForm({...form, email:e.target.value})}
               placeholder="you@example.com"
               error={err.email}
             />
@@ -64,21 +73,30 @@ export default function Login() {
               type="password"
               name="password"
               value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              onChange={(e)=>setForm({...form, password:e.target.value})}
               placeholder="••••••••"
               error={err.password}
             />
             <Button type="submit">Masuk</Button>
           </form>
 
-          {/* Footer links */}
+          <div className="flex items-center gap-3">
+            <div className="h-px bg-gray-200 w-full"></div>
+            <span className="text-xs text-gray-400">atau</span>
+            <div className="h-px bg-gray-200 w-full"></div>
+          </div>
+
+          <button
+            onClick={loginGoogle}
+            className="w-full border rounded-xl px-4 py-2 flex items-center justify-center gap-2 hover:bg-gray-50"
+          >
+            <FcGoogle size={18} />
+            <span>Masuk dengan Google</span>
+          </button>
+
           <div className="flex items-center justify-between text-sm">
-            <Link to="/register" className="text-gray-700 hover:underline">
-              Buat akun
-            </Link>
-            <Link to="/forgot-password" className="text-gray-700 hover:underline">
-              Lupa password?
-            </Link>
+            <Link to="/register" className="text-gray-700 hover:underline">Buat akun</Link>
+            <Link to="/forgot-password" className="text-gray-700 hover:underline">Lupa password?</Link>
           </div>
         </div>
       </div>
