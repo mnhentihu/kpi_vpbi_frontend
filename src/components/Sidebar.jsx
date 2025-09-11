@@ -17,7 +17,9 @@ function useUnreadNotif() {
   useEffect(() => {
     const load = () => {
       try {
-        const arr = JSON.parse(localStorage.getItem("kpi-notifications") || "[]");
+        const arr = JSON.parse(
+          localStorage.getItem("kpi-notifications") || "[]"
+        );
         setN(arr.filter((x) => !x.read).length);
       } catch {
         setN(0);
@@ -50,10 +52,8 @@ export default function Sidebar() {
     { name: "Dashboard", icon: LayoutDashboard, path: "/" },
     { name: "Karyawan", icon: Users, path: "/karyawan" },
     { name: "Divisi", icon: Grid3X3, path: "/divisi" },
-    { name: "Matriks KPI", icon: BarChart3, path: "/matriks" },
+    { name: "Matriks KPI", icon: BarChart3, path: "/konfigurasi-matriks" },
     { name: "Penilaian", icon: Star, path: "/penilaian" },
-    // Tambahan Notifikasi
-    { name: "Notifikasi", icon: Bell, path: "/notifikasi", badge: unread },
     { name: "Laporan", icon: FileText, path: "/laporan" },
   ];
 
@@ -88,7 +88,7 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      <div className="mt-8 text-xs text-gray-400">v0.1</div>
+      <div className="mt-8 text-xs text-gray-400">PT. CMLABS</div>
     </aside>
   );
 }
