@@ -1,422 +1,371 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import * as XLSX from "xlsx";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
-import {
-  ResponsiveContainer,
-  BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip,
-  LineChart, Line,
-} from "recharts";
-
-const LS_EVAL = "kpi-evaluations";
-const LS_DIV = "kpi-divisions";
-
-const THRESHOLD_GOOD = 85;
-const THRESHOLD_NEEDS_IMPROVE = 70;
-
-const fmt = (n, d = 0) =>
-  Number.isFinite(n) ? n.toLocaleString("id-ID", { maximumFractionDigits: d }) : "-";
+// src/pages/Laporan.jsx
+import { useEffect, useMemo, useState } from "react";
+import Chart from "react-apexcharts";
+import useHistoryKpiStore from "../stores/useHistoryKpiStore";
+import { useAuthStore } from "../stores/useAuthStore";
+import { useDivisiStore } from "../stores/useDivisiStore";
+import Modal from "../components/Modal";
 
 export default function Laporan() {
-  const nav = useNavigate();
-  const printRef = useRef(null);
+  const user = useAuthStore((s) => s.user);
+  const {
+    rows,
+    isLoading,
+    error,
+    fetchAll,
+    detail: getDetail,
+    resetDetail,
+  } = useHistoryKpiStore();
+  const { rows: divisions, fetchAll: fetchDivisi } = useDivisiStore();
 
-  // ===== Load data =====
-  const [evaluations, setEvaluations] = useState([]);
-  const [divisions, setDivisions] = useState([]);
+  // ====== State ======
+  const [detail, setDetail] = useState(null); // modal detail
+  const [fDivisi, setFDivisi] = useState(""); // filter divisi
+  const [year, setYear] = useState(new Date().getFullYear());
+  const [quarter, setQuarter] = useState("");
 
+  // ====== Load divisi (superadmin only) ======
   useEffect(() => {
+    if (user?.role === "superadmin") fetchDivisi();
+  }, [user, fetchDivisi]);
+
+  // ====== Quarter range ======
+  const getQuarterRange = (y, q) => {
+    if (!y || !q) return {};
+    const map = {
+      Q1: [`${y}-01-01`, `${y}-04-30`],
+      Q2: [`${y}-05-01`, `${y}-08-31`],
+      Q3: [`${y}-09-01`, `${y}-12-31`],
+    };
+    return { periode_from: map[q][0], periode_to: map[q][1] };
+  };
+
+  // ====== Fetch data ======
+  useEffect(() => {
+    if (!user) return;
+    let filters = {};
+
+    if (user.role === "karyawan") {
+      filters.user_id = user.user_id;
+    } else if (user.role === "admin") {
+      filters.divisi_id = user.divisi_id;
+    } else if (user.role === "superadmin" && fDivisi) {
+      filters.divisi_id = fDivisi;
+    }
+
+    if (quarter) Object.assign(filters, getQuarterRange(year, quarter));
+    fetchAll(filters);
+  }, [user, fDivisi, year, quarter, fetchAll]);
+
+  // ====== Modal handlers ======
+  const handleOpenDetail = async (id) => {
     try {
-      setEvaluations(JSON.parse(localStorage.getItem(LS_EVAL) || "[]"));
-      setDivisions(JSON.parse(localStorage.getItem(LS_DIV) || "[]"));
-    } catch {
-      setEvaluations([]); setDivisions([]);
+      const data = await getDetail(id);
+      if (data) setDetail(data);
+    } catch (err) {
+      console.error("Gagal ambil detail:", err);
     }
-  }, []);
+  };
 
-  // ===== Filters =====
-  const [fDiv, setFDiv] = useState("");
-  const [fStatus, setFStatus] = useState(""); // "", "Selesai", "Proses"
-  const [fQ, setFQ] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const handleCloseModal = () => {
+    setDetail(null);
+    resetDetail();
+  };
 
-  const divisiOptions = useMemo(
-    () => Array.from(new Set(divisions.map((d) => d.nama).filter(Boolean))),
-    [divisions]
-  );
+  // ====== Summary ======
+  const summary = useMemo(() => {
+    if (!rows.length) return { avg: 0, max: 0, min: 0, divisiAvg: [] };
 
-  const filtered = useMemo(() => {
-    const s = fQ.trim().toLowerCase();
-    return evaluations
-      .filter((r) => (!fDiv ? true : r.divisi === fDiv))
-      .filter((r) => (!fStatus ? true : r.status === fStatus))
-      .filter((r) => (!from ? true : r.tanggal >= from))
-      .filter((r) => (!to ? true : r.tanggal <= to))
-      .filter((r) => {
-        if (!s) return true;
-        return (r.nama || "").toLowerCase().includes(s) ||
-               (r.divisi || "").toLowerCase().includes(s);
-      })
-      .sort((a, b) => (a.tanggal < b.tanggal ? 1 : -1));
-  }, [evaluations, fDiv, fStatus, from, to, fQ]);
+    const nilaiAll = rows.map((r) => Number(r.nilai_akhir) || 0);
+    const avgAll = nilaiAll.reduce((a, b) => a + b, 0) / (nilaiAll.length || 1);
 
-  // ===== Pagination =====
-  const total = filtered.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const pageData = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return filtered.slice(start, start + pageSize);
-  }, [filtered, currentPage, pageSize]);
-  useEffect(() => setPage(1), [fDiv, fStatus, from, to, fQ, pageSize]);
+    const base = {
+      avg: avgAll.toFixed(2),
+      max: Math.max(...nilaiAll),
+      min: Math.min(...nilaiAll),
+      divisiAvg: [],
+    };
 
-  // ===== Summary =====
-  const avg = useMemo(() => {
-    if (!filtered.length) return 0;
-    return filtered.reduce((a, r) => a + (Number(r.skor) || 0), 0) / filtered.length;
-  }, [filtered]);
-  const top = useMemo(() => {
-    if (!filtered.length) return null;
-    return filtered.reduce((acc, r) => (r.skor > (acc?.skor ?? -Infinity) ? r : acc), null);
-  }, [filtered]);
-  const low = useMemo(() => {
-    if (!filtered.length) return null;
-    return filtered.reduce((acc, r) => (r.skor < (acc?.skor ?? Infinity) ? r : acc), null);
-  }, [filtered]);
+    if (user?.role === "superadmin") {
+      const group = {};
+      rows.forEach((r) => {
+        if (!r.divisi_id) return;
+        if (!group[r.divisi_id]) {
+          group[r.divisi_id] = { total: 0, count: 0, nama: r.nama_divisi };
+        }
+        group[r.divisi_id].total += Number(r.nilai_akhir) || 0;
+        group[r.divisi_id].count++;
+      });
 
-  // ===== Pivot by Divisi =====
-  const perDivisi = useMemo(() => {
-    const map = new Map();
-    for (const r of filtered) {
-      const key = r.divisi || "-";
-      const cur = map.get(key) || { divisi: key, count: 0, total: 0, good: 0, need: 0 };
-      const s = Number(r.skor) || 0;
-      cur.count += 1;
-      cur.total += s;
-      if (s >= THRESHOLD_GOOD) cur.good += 1;
-      if (s < THRESHOLD_NEEDS_IMPROVE) cur.need += 1;
-      map.set(key, cur);
-    }
-    return Array.from(map.values()).map((row) => ({
-      ...row,
-      avg: row.count ? row.total / row.count : 0,
-      goodPct: row.count ? Math.round((row.good / row.count) * 100) : 0,
-      needPct: row.count ? Math.round((row.need / row.count) * 100) : 0,
-    }));
-  }, [filtered]);
-
-  // ===== Chart data (Recharts) =====
-  // Distribusi skor (bins)
-  const distData = useMemo(() => {
-    const ranges = [
-      { label: "0–59", min: 0, max: 59 },
-      { label: "60–69", min: 60, max: 69 },
-      { label: "70–79", min: 70, max: 79 },
-      { label: "80–89", min: 80, max: 89 },
-      { label: "90–100", min: 90, max: 100 },
-    ];
-    return ranges.map((r) => ({
-      range: r.label,
-      jumlah: filtered.filter((x) => {
-        const s = Number(x.skor) || 0;
-        return s >= r.min && s <= r.max;
-      }).length,
-    }));
-  }, [filtered]);
-
-  // Tren rata-rata per bulan
-  const monthlyData = useMemo(() => {
-    // map {YYYY-MM: {sum, count}}
-    const m = new Map();
-    for (const r of filtered) {
-      const ym = (r.tanggal || "").slice(0, 7); // YYYY-MM
-      if (!ym) continue;
-      const cur = m.get(ym) || { sum: 0, count: 0 };
-      cur.sum += Number(r.skor) || 0;
-      cur.count += 1;
-      m.set(ym, cur);
-    }
-    const rows = Array.from(m.entries())
-      .sort(([a], [b]) => (a > b ? 1 : -1))
-      .map(([ym, v]) => ({
-        bulan: ym, rata2: v.count ? +(v.sum / v.count).toFixed(2) : 0,
+      base.divisiAvg = Object.values(group).map((g) => ({
+        nama: g.nama,
+        avg: (g.total / g.count).toFixed(2),
       }));
-    return rows;
-  }, [filtered]);
-
-  // ===== Export Excel =====
-  function exportExcel() {
-    const wb = XLSX.utils.book_new();
-
-    const detail = filtered.map((r) => ({
-      Karyawan: r.nama, Divisi: r.divisi, Skor: r.skor, Tanggal: r.tanggal, Status: r.status,
-    }));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detail), "Detail");
-
-    const ringkasan = perDivisi.map((r) => ({
-      Divisi: r.divisi, Jumlah: r.count, "Rata-rata": Math.round(r.avg),
-      "≥85 (org)": r.good, "<70 (org)": r.need, "≥85 (%)": r.goodPct, "<70 (%)": r.needPct,
-    }));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ringkasan), "Ringkasan Divisi");
-
-    const tren = monthlyData.map((r) => ({ Bulan: r.bulan, "Rata-rata": r.rata2 }));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tren), "Tren Bulanan");
-
-    XLSX.writeFile(wb, "laporan-kpi.xlsx");
-  }
-
-  // ===== Export PDF (multi-page) =====
-  async function exportPDF() {
-    const el = printRef.current;
-    if (!el) return;
-
-    // pastikan grafik sudah ukurannya final
-    await new Promise((r) => setTimeout(r, 200));
-
-    const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: "#ffffff" });
-    const imgData = canvas.toDataURL("image/png");
-
-    const pdf = new jsPDF("p", "mm", "a4");
-    const pageW = pdf.internal.pageSize.getWidth();
-    const pageH = pdf.internal.pageSize.getHeight();
-    const margin = 8;
-
-    const imgW = pageW - margin * 2;
-    const imgH = (canvas.height * imgW) / canvas.width;
-
-    let heightLeft = imgH;
-    let position = margin;
-
-    pdf.addImage(imgData, "PNG", margin, position, imgW, imgH);
-    heightLeft -= pageH - margin * 2;
-
-    while (heightLeft > 0) {
-      pdf.addPage();
-      position = margin - (imgH - heightLeft);
-      pdf.addImage(imgData, "PNG", margin, position, imgW, imgH);
-      heightLeft -= pageH - margin * 2;
     }
 
-    pdf.save("laporan-kpi.pdf");
-  }
+    return base;
+  }, [rows, user]);
 
-  function resetFilters() {
-    setFDiv(""); setFStatus(""); setFQ(""); setFrom(""); setTo("");
-  }
+  // ====== Pie chart ======
+  let belumTuntas = 0;
+  let tuntas = 0;
+  rows.forEach((r) => {
+    const skor = Number(r.persen_akhir) || 0;
+    if (skor < 70) belumTuntas++;
+    else tuntas++;
+  });
+  const pieOptions = {
+    labels: ["Belum Tuntas (<70)", "Tuntas (≥70)"],
+    legend: { position: "bottom" },
+    colors: ["#EF4444", "#10B981"],
+  };
+  const pieSeries = [belumTuntas, tuntas];
+
+  // ====== Bar chart ======
+  const barBuckets = { "<70%": 0, "70%-79%": 0, "80%-89%": 0, "90%-100%": 0 };
+  rows.forEach((r) => {
+    const skor = Number(r.persen_akhir) || 0;
+    if (skor < 70) barBuckets["<70%"]++;
+    else if (skor < 80) barBuckets["70%-79%"]++;
+    else if (skor < 90) barBuckets["80%-89%"]++;
+    else barBuckets["90%-100%"]++;
+  });
+  const barOptions = {
+    chart: { type: "bar" },
+    xaxis: { categories: Object.keys(barBuckets) },
+  };
+  const barSeries = [{ name: "Jumlah", data: Object.values(barBuckets) }];
+
+  // ====== Line chart ======
+  const monthly = {};
+  rows.forEach((r) => {
+    const month = r.periode?.slice(0, 7); // YYYY-MM
+    if (!month) return;
+    if (!monthly[month]) monthly[month] = { total: 0, count: 0 };
+    monthly[month].total += Number(r.nilai_akhir) || 0;
+    monthly[month].count++;
+  });
+  const lineOptions = {
+    chart: { type: "line" },
+    xaxis: { categories: Object.keys(monthly) },
+  };
+  const lineSeries = [
+    {
+      name: "Rata-rata",
+      data: Object.values(monthly).map((m) => (m.total / m.count).toFixed(2)),
+    },
+  ];
 
   return (
-    <div className="p-6">
-      <style>{`
-        @media print { .no-print { display:none!important } body{-webkit-print-color-adjust:exact;print-color-adjust:exact} }
-      `}</style>
+    <div className="p-4 space-y-6">
+      <h1 className="text-xl font-bold">Laporan KPI</h1>
 
-      <div className="max-w-7xl mx-auto" ref={printRef}>
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Laporan KPI</h1>
-            <p className="text-sm text-gray-500">Ringkasan dan detail penilaian KPI</p>
+      {/* Filter */}
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        {user?.role === "superadmin" && (
+          <select
+            value={fDivisi}
+            onChange={(e) => setFDivisi(e.target.value)}
+            className="border p-2 rounded"
+          >
+            <option value="">Semua Divisi</option>
+            {divisions.map((d) => (
+              <option key={d.divisi_id} value={d.divisi_id}>
+                {d.nama_divisi}
+              </option>
+            ))}
+          </select>
+        )}
+
+        <select
+          value={year}
+          onChange={(e) => setYear(e.target.value)}
+          className="border p-2 rounded"
+        >
+          {[2023, 2024, 2025].map((y) => (
+            <option key={y} value={y}>
+              {y}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={quarter}
+          onChange={(e) => setQuarter(e.target.value)}
+          className="border p-2 rounded"
+        >
+          <option value="">Semua</option>
+          <option value="Q1">Q1</option>
+          <option value="Q2">Q2</option>
+          <option value="Q3">Q3</option>
+        </select>
+      </div>
+
+      {/* Status */}
+      {isLoading && <p className="text-gray-500">Loading data...</p>}
+      {error && <p className="text-red-500">Terjadi kesalahan: {error}</p>}
+      {!isLoading && !error && rows.length === 0 && (
+        <p className="text-gray-500">Belum ada data KPI.</p>
+      )}
+
+      {/* Summary */}
+      {!isLoading && !error && rows.length > 0 && (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white shadow rounded p-4">
+              <p className="text-sm text-gray-500">Rata-rata Skor</p>
+              <p className="text-lg font-bold">{summary.avg}</p>
+            </div>
+            <div className="bg-white shadow rounded p-4">
+              <p className="text-sm text-gray-500">Skor Tertinggi</p>
+              <p className="text-lg font-bold">{summary.max}</p>
+            </div>
+            <div className="bg-white shadow rounded p-4">
+              <p className="text-sm text-gray-500">Skor Terendah</p>
+              <p className="text-lg font-bold">{summary.min}</p>
+            </div>
           </div>
-          <div className="no-print flex items-center gap-2">
-            <button onClick={exportExcel} className="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50">
-              Export Excel
-            </button>
-            <button onClick={exportPDF} className="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50">
-              Export PDF
-            </button>
-            <button onClick={() => nav("/")} className="px-3 py-2 rounded-lg border bg-gray-100 hover:bg-gray-200 text-sm">
-              Kembali ke Dasbor
-            </button>
-          </div>
+
+          {user?.role === "superadmin" && summary.divisiAvg.length > 0 && (
+            <div className="bg-white shadow rounded p-4 mt-4">
+              <h3 className="font-semibold mb-2">Rata-rata per Divisi</h3>
+              <ul className="list-disc pl-6 space-y-1">
+                {summary.divisiAvg.map((d, i) => (
+                  <li key={i}>
+                    {d.nama}: <span className="font-bold">{d.avg}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Charts */}
+      {!isLoading && !error && rows.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Chart
+            options={pieOptions}
+            series={pieSeries}
+            type="pie"
+            height={300}
+          />
+          <Chart
+            options={barOptions}
+            series={barSeries}
+            type="bar"
+            height={300}
+          />
+          <Chart
+            options={lineOptions}
+            series={lineSeries}
+            type="line"
+            height={300}
+          />
         </div>
+      )}
 
-        {/* Filter */}
-        <div className="no-print mt-5 card">
-          <div className="card-body grid grid-cols-1 md:grid-cols-6 gap-3">
-            <div className="md:col-span-2">
-              <label className="text-xs text-gray-600">Cari Karyawan/Divisi</label>
-              <input value={fQ} onChange={(e) => setFQ(e.target.value)} className="mt-1 w-full border rounded-xl px-3 py-2" placeholder="Ketik untuk mencari..." />
-            </div>
-            <div>
-              <label className="text-xs text-gray-600">Divisi</label>
-              <select value={fDiv} onChange={(e) => setFDiv(e.target.value)} className="mt-1 w-full border rounded-xl px-3 py-2">
-                <option value="">Semua Divisi</option>
-                {divisiOptions.map((d) => <option key={d} value={d}>{d}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs text-gray-600">Dari Tanggal</label>
-              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="mt-1 w-full border rounded-xl px-3 py-2" />
-            </div>
-            <div>
-              <label className="text-xs text-gray-600">Sampai Tanggal</label>
-              <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="mt-1 w-full border rounded-xl px-3 py-2" />
-            </div>
-            <div>
-              <label className="text-xs text-gray-600">Status</label>
-              <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} className="mt-1 w-full border rounded-xl px-3 py-2">
-                <option value="">Semua</option>
-                <option value="Selesai">Selesai</option>
-                <option value="Proses">Proses</option>
-              </select>
-            </div>
-            <div className="md:col-span-6 flex items-end justify-end">
-              <button onClick={resetFilters} className="px-3 py-2 text-sm border rounded-lg hover:bg-gray-50">Reset Filter</button>
-            </div>
-          </div>
-        </div>
-
-        {/* Summary */}
-        <div className="mt-5 grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="card"><div className="card-body">
-            <div className="text-xs text-gray-500">Total Penilaian</div>
-            <div className="text-2xl font-bold mt-1">{fmt(total)}</div>
-          </div></div>
-          <div className="card"><div className="card-body">
-            <div className="text-xs text-gray-500">Rata-rata Skor</div>
-            <div className="text-2xl font-bold mt-1">{fmt(avg, 0)}</div>
-          </div></div>
-          <div className="card"><div className="card-body">
-            <div className="text-xs text-gray-500">Skor Tertinggi</div>
-            <div className="text-2xl font-bold mt-1">{top ? top.skor : "-"}</div>
-            <div className="text-xs text-gray-500">{top ? top.nama : ""}</div>
-          </div></div>
-          <div className="card"><div className="card-body">
-            <div className="text-xs text-gray-500">Skor Terendah</div>
-            <div className="text-2xl font-bold mt-1">{low ? low.skor : "-"}</div>
-            <div className="text-xs text-gray-500">{low ? low.nama : ""}</div>
-          </div></div>
-        </div>
-
-        {/* Charts */}
-        <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Distribusi */}
-          <div className="card">
-            <div className="card-body">
-              <h3 className="font-semibold mb-3">Distribusi Skor</h3>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={distData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="range" />
-                    <YAxis allowDecimals={false} />
-                    <Tooltip />
-                    <Bar dataKey="jumlah" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-
-          {/* Tren Bulanan */}
-          <div className="card">
-            <div className="card-body">
-              <h3 className="font-semibold mb-3">Tren Rata-rata Bulanan</h3>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={monthlyData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="bulan" />
-                    <YAxis domain={[0, 100]} />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="rata2" dot />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Ringkasan per Divisi */}
-        <div className="mt-5 card overflow-hidden">
-          <div className="px-5 py-3 border-b">
-            <h3 className="font-semibold">Ringkasan per Divisi</h3>
-          </div>
-          <table className="w-full text-sm">
-            <thead className="bg-white">
-              <tr className="text-left text-gray-600 border-b">
-                <th className="px-5 py-3">Divisi</th>
-                <th className="px-5 py-3 w-40">Jumlah</th>
-                <th className="px-5 py-3 w-32">Rata-rata</th>
-                <th className="px-5 py-3 w-40">≥ {THRESHOLD_GOOD} (org / %)</th>
-                <th className="px-5 py-3 w-40">&lt; {THRESHOLD_NEEDS_IMPROVE} (org / %)</th>
+      {/* Table */}
+      {!isLoading && !error && rows.length > 0 && (
+        <div className="overflow-x-auto mt-4">
+          <table className="w-full border text-sm text-center">
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="border p-2">No</th>
+                <th className="border p-2">Nama</th>
+                <th className="border p-2">Periode</th>
+                <th className="border p-2">Skor</th>
+                <th className="border p-2">Persentase</th>
+                <th className="border p-2">Aksi</th>
               </tr>
             </thead>
             <tbody>
-              {perDivisi.map((r) => (
-                <tr key={r.divisi} className="border-b last:border-0">
-                  <td className="px-5 py-3">{r.divisi}</td>
-                  <td className="px-5 py-3">{fmt(r.count)}</td>
-                  <td className="px-5 py-3">{fmt(r.avg, 0)}</td>
-                  <td className="px-5 py-3">{r.good} / {r.goodPct}%</td>
-                  <td className="px-5 py-3">{r.need} / {r.needPct}%</td>
-                </tr>
-              ))}
-              {perDivisi.length === 0 && (
-                <tr><td colSpan={5} className="px-5 py-10 text-center text-gray-500">Tidak ada data.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Detail */}
-        <div className="mt-6 card overflow-hidden">
-          <div className="px-5 py-3 border-b flex items-center justify-between">
-            <h3 className="font-semibold">Detail Penilaian</h3>
-            <div className="text-xs text-gray-500">
-              Menampilkan {(currentPage - 1) * pageSize + (total ? 1 : 0)}–
-              {Math.min(currentPage * pageSize, total)} dari {total} baris
-            </div>
-          </div>
-          <table className="w-full text-sm">
-            <thead className="bg-white">
-              <tr className="text-left text-gray-600 border-b">
-                <th className="px-5 py-3">Karyawan</th>
-                <th className="px-5 py-3 w-40">Divisi</th>
-                <th className="px-5 py-3 w-28">Skor</th>
-                <th className="px-5 py-3 w-40">Tanggal</th>
-                <th className="px-5 py-3 w-28">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pageData.map((r) => (
-                <tr key={r.id} className="border-b last:border-0">
-                  <td className="px-5 py-3">{r.nama}</td>
-                  <td className="px-5 py-3">{r.divisi || "-"}</td>
-                  <td className="px-5 py-3">{r.skor}</td>
-                  <td className="px-5 py-3">{r.tanggal}</td>
-                  <td className="px-5 py-3">
-                    <span className="px-2 py-1 rounded-full text-xs bg-gray-100 border text-gray-700">
-                      {r.status}
-                    </span>
+              {rows.map((row, idx) => (
+                <tr key={row.history_id} className="hover:bg-gray-50">
+                  <td className="border p-2">{idx + 1}</td>
+                  <td className="border p-2">{row.fullname}</td>
+                  <td className="border p-2">{row.periode?.slice(0, 7)}</td>
+                  <td className="border p-2">{row.nilai_akhir}</td>
+                  <td className="border p-2">{row.persen_akhir}</td>
+                  <td className="border p-2">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenDetail(row.history_id)}
+                      className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                    >
+                      Detail
+                    </button>
                   </td>
                 </tr>
               ))}
-              {pageData.length === 0 && (
-                <tr><td colSpan={5} className="px-5 py-10 text-center text-gray-500">Tidak ada data.</td></tr>
-              )}
             </tbody>
           </table>
+        </div>
+      )}
 
-          {/* Pagination */}
-          <div className="px-5 py-3 flex items-center justify-between">
-            <div className="no-print">
-              <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="border rounded-xl px-3 py-2">
-                {[5, 10, 20, 50].map((n) => <option key={n} value={n}>{n} / halaman</option>)}
-              </select>
-            </div>
-            <div className="no-print flex items-center gap-2">
-              <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1.5 rounded-lg border disabled:opacity-50">Sebelumnya</button>
-              <span className="text-sm">Hal. {currentPage}/{totalPages}</span>
-              <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1.5 rounded-lg border disabled:opacity-50">Berikutnya</button>
+      {/* Modal Detail */}
+      <Modal
+        open={!!detail}
+        onClose={handleCloseModal}
+        title="Detail Penilaian"
+        size="lg"
+      >
+        {detail && (
+          <div>
+            <h3 className="font-semibold mb-2">
+              {detail.fullname} -{" "}
+              {divisions.find((d) => d.divisi_id === detail.divisi_id)?.name ||
+                "-"}
+            </h3>
+            <p>
+              <span className="font-semibold">Nilai Akhir:</span>{" "}
+              {detail.nilai_akhir}
+            </p>
+            <p>
+              <span className="font-semibold">Persen Akhir:</span>{" "}
+              {detail.persen_akhir}%
+            </p>
+
+            <div className="mt-3">
+              <h4 className="font-semibold mb-2">Detail KPI</h4>
+              <table className="w-full border text-sm text-center">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="border p-1">Indikator</th>
+                    <th className="border p-1">Target</th>
+                    <th className="border p-1">Satuan</th>
+                    <th className="border p-1">Bobot</th>
+                    <th className="border p-1">Nilai Real</th>
+                    <th className="border p-1">Persen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail?.details?.map((d, i) => (
+                    <tr key={i}>
+                      <td className="border p-1">{d.indikator}</td>
+                      <td className="border p-1">{d.target}</td>
+                      <td className="border p-1">{d.satuan}</td>
+                      <td className="border p-1">{d.bobot}%</td>
+                      <td className="border p-1">{d.nilai_real}</td>
+                      <td className="border p-1">{d.persen_real}%</td>
+                    </tr>
+                  ))}
+                  {(!detail.details || detail.details.length === 0) && (
+                    <tr>
+                      <td
+                        colSpan={6}
+                        className="text-center text-gray-500 py-4"
+                      >
+                        Tidak ada detail KPI
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
-        </div>
-      </div>
+        )}
+      </Modal>
     </div>
   );
 }

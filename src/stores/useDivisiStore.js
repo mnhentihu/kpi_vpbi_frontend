@@ -47,4 +47,10 @@ export const useDivisiStore = create((set, get) => ({
       throw new Error(err.response?.data?.message || err.message);
     }
   },
+
+  // 🔹 helper untuk ambil nama divisi by ID
+  getDivisiName: (id) => {
+    const rows = get().rows;
+    return rows.find((d) => d.divisi_id === id)?.name || "-";
+  },
 }));

@@ -30,10 +30,10 @@ export default function Modal({
   return (
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           {/* Overlay */}
           <motion.div
-            className="absolute inset-0 bg-black/30"
+            className="absolute inset-0 bg-black/40"
             onClick={onClose}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -42,7 +42,7 @@ export default function Modal({
 
           {/* Modal Box */}
           <motion.div
-            className={`relative w-full ${sizeClass} bg-white rounded-2xl shadow-lg overflow-hidden`}
+            className={`relative w-full ${sizeClass} bg-white rounded-2xl shadow-lg flex flex-col max-h-[90vh]`}
             initial={{ opacity: 0, scale: 0.95, y: -10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -10 }}
@@ -61,11 +61,13 @@ export default function Modal({
               )}
             </div>
 
-            {/* Body */}
-            <div className="p-5">{children}</div>
+            {/* Body (scrollable) */}
+            <div className="p-5 overflow-y-auto flex-1">{children}</div>
 
             {/* Footer (optional) */}
-            {footer && <div className="px-5 py-4 border-t">{footer}</div>}
+            {footer && (
+              <div className="px-5 py-4 border-t shrink-0">{footer}</div>
+            )}
           </motion.div>
         </div>
       )}

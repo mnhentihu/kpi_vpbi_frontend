@@ -3,23 +3,34 @@ import { create } from "zustand";
 import axios from "../auth/axiosInstance";
 
 const useHistoryKpiStore = create((set, get) => ({
-  rows: [],
-  loading: false,
+  rows: [], // ✅ default array kosong
+  total: 0,
+  isLoading: false, // ✅ lebih semantik daripada "loading"
   error: null,
+  selectedDetail: null, // ✅ bisa dipakai untuk caching detail
 
+  // Fetch semua KPI history
   fetchAll: async (params = {}) => {
-    set({ loading: true, error: null });
+    set({ isLoading: true, error: null });
     try {
       const res = await axios.get("/history-kpi", { params });
-      set({ rows: res.data, loading: false });
+      const { rows = [], total = 0 } = res.data.data || {};
+      set({
+        rows,
+        total,
+        isLoading: false,
+      });
     } catch (err) {
       set({
+        rows: [],
+        total: 0,
         error: err.response?.data?.message || err.message,
-        loading: false,
+        isLoading: false,
       });
     }
   },
 
+  // Tambah data KPI history
   add: async (data) => {
     try {
       const res = await axios.post("/history-kpi", data);
@@ -30,14 +41,25 @@ const useHistoryKpiStore = create((set, get) => ({
     }
   },
 
+  // Ambil detail KPI tertentu
   detail: async (id) => {
+    set({ isLoading: true, error: null, selectedDetail: null });
     try {
       const res = await axios.get(`/history-kpi/${id}`);
-      return res.data;
+      set({ selectedDetail: res.data.data, isLoading: false });
+      return res.data.data;
     } catch (err) {
+      set({
+        selectedDetail: null,
+        error: err.response?.data?.message || err.message,
+        isLoading: false,
+      });
       throw err.response?.data || { message: "Gagal mengambil detail" };
     }
   },
+
+  // Reset detail (misal saat modal ditutup)
+  resetDetail: () => set({ selectedDetail: null }),
 }));
 
 export default useHistoryKpiStore;
