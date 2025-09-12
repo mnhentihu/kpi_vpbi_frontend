@@ -78,7 +78,7 @@ export default function Dashboard() {
           nama: g.nama,
           avg: (g.total / g.count).toFixed(2),
         })),
-        totalKaryawan: karyawans?.length || 0, // FIX pakai store karyawan
+        totalKaryawan: karyawans?.length || 0,
         totalDivisi: divisions?.length || 0,
         totalPenilaian: rows.length,
       };
@@ -107,6 +107,23 @@ export default function Dashboard() {
     if (user?.role !== "superadmin" || !summary.divisiAvg) return [];
     return summary.divisiAvg.map((d) => ({ x: d.nama, y: d.avg }));
   }, [summary, user]);
+
+  const pieData = useMemo(() => {
+    if (user?.role !== "superadmin" || !karyawans?.length) return null;
+    const group = {};
+    karyawans.forEach((k) => {
+      if (!k.divisi_id) return;
+      const nama =
+        divisions.find((d) => d.divisi_id === k.divisi_id)?.name ||
+        "Tanpa Divisi";
+      if (!group[nama]) group[nama] = 0;
+      group[nama]++;
+    });
+    return {
+      labels: Object.keys(group),
+      series: Object.values(group),
+    };
+  }, [user, karyawans, divisions]);
 
   // === Top / Bottom ===
   const topBottom = useMemo(() => {
@@ -223,17 +240,38 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="bg-white shadow rounded p-4">
-            <h3 className="font-semibold mb-2">Tren Global</h3>
-            <Chart
-              type="line"
-              height={300}
-              series={[{ name: "Rata-rata Global", data: lineData }]}
-              options={{
-                chart: { id: "super-line" },
-                xaxis: { type: "category" },
-              }}
-            />
+          <div className="grid grid-cols-2 gap-6">
+            <div className="bg-white shadow rounded p-4">
+              <h3 className="font-semibold mb-2">Tren Global</h3>
+              <Chart
+                type="line"
+                height={300}
+                series={[{ name: "Rata-rata Global", data: lineData }]}
+                options={{
+                  chart: { id: "super-line" },
+                  xaxis: { type: "category" },
+                }}
+              />
+            </div>
+
+            <div className="bg-white shadow rounded p-4">
+              <h3 className="font-semibold mb-2">
+                Distribusi Karyawan per Divisi
+              </h3>
+              {pieData ? (
+                <Chart
+                  type="pie"
+                  height={300}
+                  series={pieData.series}
+                  options={{
+                    labels: pieData.labels,
+                    legend: { position: "bottom" },
+                  }}
+                />
+              ) : (
+                <p className="text-gray-500">Belum ada data karyawan.</p>
+              )}
+            </div>
           </div>
 
           <div className="bg-white shadow rounded p-4">
