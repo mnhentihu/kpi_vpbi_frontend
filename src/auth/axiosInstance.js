@@ -2,7 +2,7 @@ import axios from "axios";
 import { useAuthStore } from "../stores/useAuthStore";
 
 const api = axios.create({
-  baseURL: "http://localhost:5000/api", // ganti sesuai backend
+  baseURL: process.env.BACKEND_URL ||"http://localhost:5000/api", 
 });
 
 // Interceptor Request → Tambahin Authorization Header
