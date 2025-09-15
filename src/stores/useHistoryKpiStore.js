@@ -14,7 +14,11 @@ const useHistoryKpiStore = create((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const res = await axios.get("/history-kpi", { params });
-      const { rows = [], total = 0 } = res.data.data || {};
+      console.log("fetchAll response:", res.data);
+
+      const rows = Array.isArray(res.data.data) ? res.data.data : [];
+      const total = res.data.total || rows.length;
+
       set({
         rows,
         total,

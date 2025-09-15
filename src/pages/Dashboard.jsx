@@ -39,6 +39,8 @@ export default function Dashboard() {
     ).toFixed(2);
   };
 
+  console.log("Laporan rows:", rows); // cek data yang sampai
+
   // === Summary sesuai role ===
   const summary = useMemo(() => {
     if (!rows || !rows.length) return {};
