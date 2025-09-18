@@ -103,10 +103,10 @@ export default function Divisi() {
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">Divisi</h1>
           <div className="flex gap-2">
-            {isSuperadmin && ( // ✅ hanya superadmin bisa tambah
+            {isSuperadmin && ( 
               <button
                 onClick={openAdd}
-                className="px-4 py-2 text-sm rounded-lg border bg-gray-100 hover:bg-gray-200"
+                className=" px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white"
               >
                 Tambah Divisi
               </button>
