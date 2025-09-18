@@ -184,13 +184,13 @@ export default function Karyawan() {
                       <>
                         <button
                           onClick={() => openEdit(r)}
-                          className="text-blue-500 hover:underline"
+                          className=" px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white"
                         >
                           Edit
                         </button>
                         <button
                           onClick={() => removeRow(r)}
-                          className="text-red-500 hover:underline"
+                          className=" px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white"
                         >
                           Hapus
                         </button>
