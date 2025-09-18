@@ -103,7 +103,7 @@ export default function Divisi() {
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">Divisi</h1>
           <div className="flex gap-2">
-            {isSuperadmin && ( 
+            {isSuperadmin && (
               <button
                 onClick={openAdd}
                 className=" px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white"
@@ -162,14 +162,14 @@ export default function Divisi() {
                   <td className="px-4 py-2">
                     <button
                       onClick={() => openEdit(r)}
-                      className="text-blue-500 hover:underline"
+                      className=" px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white"
                     >
                       Edit
                     </button>
                     {" | "}
                     <button
                       onClick={() => removeRow(r)}
-                      className="text-red-500 hover:underline"
+                      className=" px-4 py-2 rounded-lg bg-red-600 hover:bg-blue-700 text-white"
                     >
                       Hapus
                     </button>
